@@ -152,7 +152,11 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 
 // -------------------- CURRENT USER --------------------
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(new ApiResponse(200, req.user, "Current user fetched successfully"));
+  return res.status(200).json(new ApiResponse(
+        200,
+        user,
+         "User fetched successfully"
+    ))
 });
 
 // -------------------- UPDATE ACCOUNT --------------------
@@ -203,7 +207,71 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
   ).select("-password");
 
   return res.status(200).json(new ApiResponse(200, user, "Cover image updated successfully"));
-});
+}); 
+
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  const {username} = req.params;
+  if (!username?.trim()){
+    throw new ApiError(400, "Username is required");
+  } 
+
+  const channel = await User.aggregate([
+    {
+      $match: { 
+        username: username?.toLowerCase() 
+      }
+    },
+    {
+      $lookup:{
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers"
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo"
+      }
+    },
+    {
+      $addFields: {
+        subscribersCount: { $size: "$subscribers" },
+        channelsSubscribedToCount: { $size: "$subscribedTo" },
+        isSubscribed: {
+          $cond: {
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            then: true,
+            else: false
+          }
+        }
+      }
+    },
+    {
+      $project: {
+        fullName: 1,
+        username: 1,
+        subscribersCount: 1,
+        channelsSubscribedToCount: 1,
+        isSubscribed: 1,
+        avatar: 1,
+        coverImage: 1,
+        email: 1
+      }
+    }
+  ])
+
+  if(!channel?.length){
+    throw new ApiError(404, "Channel not found");
+  }
+
+  return res.status(200).json(new ApiResponse(200, channel[0], "Channel profile fetched successfully"));
+})
+
+
 
 // -------------------- EXPORTS --------------------
 export {
@@ -215,5 +283,6 @@ export {
   getCurrentUser,
   updateAccountDetails,
   updateUserAvatar,
-  updateUserCoverImage
+  updateUserCoverImage,
+  getUserChannelProfile
 };
