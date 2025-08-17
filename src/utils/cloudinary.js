@@ -1,6 +1,14 @@
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
 
+// Debugging - log values (never log secrets fully in prod)
+console.log("☁️ Cloudinary Config:", {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET ? "loaded" : "missing",
+});
+
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
