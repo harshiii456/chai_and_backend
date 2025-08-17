@@ -1,0 +1,16 @@
+// healthcheck.controller.js
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+
+/**
+ * @desc Healthcheck endpoint
+ * @route GET /api/v1/healthcheck
+ */
+const healthcheck = asyncHandler(async (req, res) => {
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { status: "OK" }, "Server is healthy 🚀"));
+});
+
+export { healthcheck };
