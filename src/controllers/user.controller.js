@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose"; // ✅ Needed for ObjectId in aggregation
 
 // -------------------- TOKEN GENERATOR --------------------
 const generateAccessAndRefreshTokens = async (userId) => {
@@ -24,9 +25,8 @@ const generateAccessAndRefreshTokens = async (userId) => {
 // -------------------- REGISTER --------------------
 const registerUser = asyncHandler(async (req, res) => {
   const { fullName, email, username, password } = req.body;
-  console.log("📩 Incoming registration request:", email);
 
-  // Validate required fields
+  // Validate fields
   if ([fullName, email, username, password].some((field) => !field?.trim())) {
     throw new ApiError(400, "All fields are required");
   }
@@ -37,21 +37,17 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(409, "User with email or username already exists");
   }
 
-  // Handle file uploads
+  // File uploads
   const avatarLocalPath = req.files?.avatar?.[0]?.path;
   const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is required");
-  }
+  if (!avatarLocalPath) throw new ApiError(400, "Avatar file is required");
 
   const avatar = await uploadOnCloudinary(avatarLocalPath);
   const coverImage = coverImageLocalPath
     ? await uploadOnCloudinary(coverImageLocalPath)
     : null;
 
-  if (!avatar) {
-    throw new ApiError(400, "Avatar upload failed");
-  }
+  if (!avatar) throw new ApiError(400, "Avatar upload failed");
 
   // Create new user
   const user = await User.create({
@@ -64,13 +60,11 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   const createdUser = await User.findById(user._id).select("-password -refreshToken");
-  if (!createdUser) {
-    throw new ApiError(500, "Something went wrong while registering the user");
-  }
+  if (!createdUser) throw new ApiError(500, "User registration failed");
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, createdUser, "User registered successfully"));
+  return res.status(201).json(
+    new ApiResponse(201, createdUser, "User registered successfully")
+  );
 });
 
 // -------------------- LOGIN --------------------
@@ -99,7 +93,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
 // -------------------- LOGOUT --------------------
 const logoutUser = asyncHandler(async (req, res) => {
-  await User.findByIdAndUpdate(req.user._id, { $set: { refreshToken: undefined } }, { new: true });
+  await User.findByIdAndUpdate(req.user._id, { $set: { refreshToken: 1 } });
 
   const options = { httpOnly: true, secure: true };
 
@@ -140,7 +134,7 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
   const user = await User.findById(req.user?._id);
-  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword); // ✅ FIX: added await
+  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
 
   if (!isPasswordCorrect) throw new ApiError(400, "Old password is incorrect");
 
@@ -152,11 +146,8 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 
 // -------------------- CURRENT USER --------------------
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(new ApiResponse(
-        200,
-        user,
-         "User fetched successfully"
-    ))
+  const user = await User.findById(req.user?._id).select("-password -refreshToken"); // ✅ FIX
+  return res.status(200).json(new ApiResponse(200, user, "User fetched successfully"));
 });
 
 // -------------------- UPDATE ACCOUNT --------------------
@@ -175,8 +166,7 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 
 // -------------------- UPDATE AVATAR --------------------
 const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.file?.path; // ✅ FIX: use req.file (single upload)
-
+  const avatarLocalPath = req.file?.path;
   if (!avatarLocalPath) throw new ApiError(400, "Avatar file is required");
 
   const avatar = await uploadOnCloudinary(avatarLocalPath);
@@ -193,8 +183,7 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
 
 // -------------------- UPDATE COVER IMAGE --------------------
 const updateUserCoverImage = asyncHandler(async (req, res) => {
-  const coverLocalPath = req.file?.path; // ✅ FIX: use req.file (single upload)
-
+  const coverLocalPath = req.file?.path;
   if (!coverLocalPath) throw new ApiError(400, "Cover image file is required");
 
   const coverImage = await uploadOnCloudinary(coverLocalPath);
@@ -207,20 +196,15 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
   ).select("-password");
 
   return res.status(200).json(new ApiResponse(200, user, "Cover image updated successfully"));
-}); 
+});
 
+// -------------------- USER CHANNEL PROFILE --------------------
 const getUserChannelProfile = asyncHandler(async (req, res) => {
-  const {username} = req.params;
-  if (!username?.trim()){
-    throw new ApiError(400, "Username is required");
-  } 
+  const { username } = req.params;
+  if (!username?.trim()) throw new ApiError(400, "Username is required");
 
   const channel = await User.aggregate([
-    {
-      $match: { 
-        username: username?.toLowerCase() 
-      }
-    },
+    { $match: { username: username.toLowerCase() } },
     {
       $lookup:{
         from: "subscriptions",
@@ -262,22 +246,17 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         email: 1
       }
     }
-  ])
+  ]);
 
-  if(!channel?.length){
-    throw new ApiError(404, "Channel not found");
-  }
+  if (!channel?.length) throw new ApiError(404, "Channel not found");
 
   return res.status(200).json(new ApiResponse(200, channel[0], "Channel profile fetched successfully"));
-})
+});
 
+// -------------------- WATCH HISTORY --------------------
 const getWatchHistory = asyncHandler(async (req, res) => {
   const user = await User.aggregate([
-    {
-      $match: { 
-        _id: new mongoose.Types.ObjectId(req.user._id) 
-      }
-    },
+    { $match: { _id: new mongoose.Types.ObjectId(req.user._id) } },
     {
       $lookup: {
         from: "videos",
@@ -292,30 +271,20 @@ const getWatchHistory = asyncHandler(async (req, res) => {
               foreignField: "_id",
               as: "owner",
               pipeline: [
-                {
-                  $project: {
-                    fullName: 1,
-                    username: 1,
-                    avatar: 1
-                  }
-                }
+                { $project: { fullName: 1, username: 1, avatar: 1 } }
               ]
             }
           },
-          {
-            $addFields: {
-              owner: { 
-                $first: "$owner"
-              }
-            }
-          }
+          { $addFields: { owner: { $first: "$owner" } } }
         ]
       }
     }
-  ])
+  ]);
 
-  return res.status(200).json(new ApiResponse(200, user[0].watchHistory, "Watch history fetched successfully"));
-})
+  return res.status(200).json(
+    new ApiResponse(200, user[0]?.watchHistory || [], "Watch history fetched successfully")
+  );
+});
 
 // -------------------- EXPORTS --------------------
 export {
